@@ -4746,25 +4746,25 @@
     function tronDetect(streamName) {
         return (streamName && TRON_JOBSTREAM_MAP[streamName]) || null;
     }
-    // Lee los valores del panel de info del job. Parseo por PATRON (no por posicion),
-    // porque el orden de las cajas key/value del panel no es estable entre versiones.
+    // Lee los valores identificadores del job. Parseo por PATRON sobre el body:
+    // el probe (WW35) confirmo que el stream/jobId/usuario NO viven en el
+    // job-info-wrapper-container sino sueltos en el header del job, y que el orden
+    // de esas cajas no es estable -> parseo por patron, no por posicion.
     function readTronJobInfo() {
-        const box = document.querySelector('[data-testid="job-info-wrapper-container"]');
-        const scope = box || document.body;
-        const txt = (scope.textContent || '').replace(/\s+/g, ' ').trim();
-        // Job ID: UUID v4. Fuente secundaria: el testid del tab de respuesta "<uuid>-vote-N".
-        let jobId = (txt.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [])[0] || null;
-        if (!jobId) {
-            const voteTab = document.querySelector('[data-testid$="-vote-1"],[data-testid*="-vote-"]');
-            const m = voteTab && /([0-9a-f-]{36})-vote-/i.exec(voteTab.getAttribute('data-testid') || '');
-            if (m) jobId = m[1];
-        }
-        // Stream: contra el mapa conocido (mas especifico primero: "Dense_ID_verification"
-        // gana a "Dense_ID"); si no, token con guion_bajo (estilo Dense_ID).
-        let stream = Object.keys(TRON_JOBSTREAM_MAP)
+        // Job ID (UUID). Fuente PRIMARIA: testid del tab de respuesta "<uuid>-vote-N"
+        // (inequivoco). Fallback: primer UUID que aparezca en el texto del body.
+        let jobId = null;
+        const voteTab = document.querySelector('[data-testid$="-vote-1"],[data-testid*="-vote-"]');
+        const vm = voteTab && /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-vote-/i.exec(voteTab.getAttribute('data-testid') || '');
+        if (vm) jobId = vm[1];
+        const bodyTxt = (document.body.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!jobId) jobId = (bodyTxt.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [])[0] || null;
+        // Stream: contra el mapa conocido, mas especifico primero ("Dense_ID_verification"
+        // gana a "Dense_ID"). Solo un stream mapeado dispara el Use Case, asi que no hace
+        // falta un fallback por token (un stream desconocido no se auto-detecta igual).
+        const stream = Object.keys(TRON_JOBSTREAM_MAP)
             .sort((a, b) => b.length - a.length)
-            .find(s => txt.includes(s)) || null;
-        if (!stream) { const m = txt.match(/\b([A-Za-z]+(?:_[A-Za-z]+)+)\b/); if (m) stream = m[1]; }
+            .find(s => bodyTxt.includes(s)) || null;
         return { jobId, stream };
     }
     // "Segments Created: N" -> total de labels del job.

@@ -47,7 +47,7 @@ patrón ya probado del módulo de Harmony (`autofillHarmonyPcs` + poll del SPA).
 | `jobURL` | `window.location.href` | ✅ auto |
 | `batchName` | — (no aplica en R2PS) | ⛔ fuera |
 | `isRework`/`reworkRound`/`reworkStatus` | — (no hay rework) | ⛔ fuera |
-| `associateLogin` | pendiente de confirmar si está en el DOM/API | ⏳ manual (probe) |
+| `associateLogin` | **NO está en el DOM de R2PS** (ver probe) → requiere Plan B | ⛔ no scrapeable |
 | `isDefective`, `errorClassification`, `rootCause`, correct/incorrect/missing | juicio del QA | ✍️ manual |
 
 ## Qué se agregó al script
@@ -65,11 +65,25 @@ patrón ya probado del módulo de Harmony (`autofillHarmonyPcs` + poll del SPA).
 Validado contra el snapshot real del job: extrae jobId `6fe80371-…`, stream
 `Dense_ID_verification`, `Segments Created: 8`, takt AA `1382s`. `node --check` OK.
 
+## Resultado del probe (Test 1, WW35) — `associateLogin`
+
+Se corrió el snippet read-only sobre un job de Dense en vivo. Confirmado:
+
+- jobId `260718d8-…`, stream `Dense_ID_verification`, `Segments Created: 6`, takt AA
+  `334.49s`, takt QA `00:00:56:771` → **todos los extractores funcionan**.
+- La única identidad de usuario en el DOM es el **QA logueado** (`bumariao-…`, display
+  "Gabriela Burgos Arias"). Los "hits" de login (`Associate Login`, `auditorLogin`,
+  `login de QA`) provienen de **nuestro propio panel MRO** inyectado, no de R2PS.
+- **Conclusión: el login del ANOTADOR no existe en el DOM de la vista de verificación.**
+  No se puede scrapear. Queda como opción la API de Tron (sin confirmar) o el Plan B.
+
+Fix derivado del probe: el stream/jobId/usuario **no** viven en `job-info-wrapper-container`
+sino sueltos en el header del job. `readTronJobInfo()` ahora escanea el `body` y usa el
+testid `…-vote-1` como fuente primaria del jobId (validado contra el body real del probe).
+
 ## Pendientes / próximos pasos
 
-1. **Probe de `associateLogin`** (snippet de consola read-only) para confirmar si el login
-   del AA es extraíble del DOM en R2PS. Define la solución de este campo.
-2. **Plan B — toggle de Rol (QA / AA)** en un solo script: el AA aporta desde su sesión
+1. **Plan B — toggle de Rol (QA / AA)** en un solo script: el AA aporta desde su sesión
    los campos que solo él conoce (su login, takt, use case, week) con `jobId` como clave
    de unión; KNIME hace el join. Aplica a todas las plataformas, empezando por R2PS.
 3. **Multiview e InTote**: agregar sus taxonomías y entradas al `TRON_JOBSTREAM_MAP` cuando
