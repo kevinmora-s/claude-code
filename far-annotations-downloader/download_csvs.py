@@ -253,11 +253,12 @@ def run_discovery(page: Page) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Descarga automatica de CSVs de FAR Annotations Audit.")
-    ap.add_argument("--headless", action="store_true", help="Sin ventana visible.")
-    ap.add_argument("--attach", action="store_true",
-                    help="Conectarse a un Edge ya abierto con --remote-debugging-port (usa launch_edge_debug.bat).")
-    ap.add_argument("--cdp", type=str, default="http://localhost:9222",
-                    help="URL de depuracion del Edge al que conectarse (con --attach).")
+    ap.add_argument("--headless", action="store_true", help="Sin ventana visible (solo con --no-attach).")
+    ap.add_argument("--no-attach", dest="attach", action="store_false",
+                    help="NO conectarse a tu Edge; abrir un navegador propio (no suele servir por Midway/AEA).")
+    ap.set_defaults(attach=True)  # por defecto: conectarse a TU Edge (launch_edge_debug.bat)
+    ap.add_argument("--cdp", type=str, default="http://127.0.0.1:9222",
+                    help="URL de depuracion del Edge (por defecto 127.0.0.1:9222).")
     ap.add_argument("--discover", action="store_true", help="Solo listar queues/enlaces y salir.")
     ap.add_argument("--only", type=int, metavar="N", help="Correr solo el objetivo N (1..%d)." % len(TARGETS))
     ap.add_argument("--date", type=str, metavar="YYYY-MM-DD", help="Forzar fecha para el nombre.")
@@ -284,13 +285,26 @@ def main() -> int:
     with sync_playwright() as p:
         browser = None
         if args.attach:
-            # Conectarse a un Edge YA abierto y autenticado (con --remote-debugging-port).
-            log.info("Conectando al Edge en %s ...", args.cdp)
-            browser = p.chromium.connect_over_cdp(args.cdp)
+            # Conectarse al Edge YA abierto y autenticado (el de launch_edge_debug.bat).
+            log.info("Conectando a TU Edge en %s ...", args.cdp)
+            try:
+                browser = p.chromium.connect_over_cdp(args.cdp)
+            except Exception as exc:  # noqa: BLE001
+                log.error("No pude conectar a tu Edge (%s).", exc)
+                log.error("Abre PRIMERO 'launch_edge_debug.bat', inicia sesion en Midway y DEJALO abierto.")
+                return 3
             if not browser.contexts:
                 raise RuntimeError("el Edge conectado no tiene contexto; abrelo con launch_edge_debug.bat")
-            ctx = browser.contexts[0]  # contexto real -> conserva tu sesion/cookies
-            page = ctx.new_page()
+            ctx = browser.contexts[0]  # contexto real -> conserva tu sesion (AEA / Midway)
+            # Reutiliza la pestana que ya esta en la app; si no hay, abre una.
+            page = None
+            for pg in ctx.pages:
+                if "far-annotations" in (pg.url or "").lower():
+                    page = pg
+                    break
+            if page is None:
+                page = ctx.new_page()
+            log.info("Conectado. Usando tu sesion autenticada.")
         else:
             launch_kwargs = dict(
                 user_data_dir=str(PROFILE_DIR),
@@ -326,11 +340,7 @@ def main() -> int:
                     results.append((label, False, str(exc)))
         finally:
             if args.attach:
-                # No cerrar TU navegador; solo la pestana que abrimos.
-                try:
-                    page.close()
-                except Exception:  # noqa: BLE001
-                    pass
+                pass  # es TU navegador: no lo cerramos ni tocamos tus pestanas
             else:
                 if args.keep_open:
                     log.info("Navegador abierto (--keep-open). Cierralo manualmente.")
