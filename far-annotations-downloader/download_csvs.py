@@ -67,15 +67,19 @@ AUTH_WAIT_S = 300  # 5 minutos
 # Tiempo maximo de espera a que se genere/descargue cada CSV.
 DOWNLOAD_TIMEOUT_MS = 25 * 60 * 1000  # 25 minutos
 
-# Los 5 archivos a descargar. 'section': "job" (Job Queues) o "review" (Review Queues).
-# 'folder' = subcarpeta destino. 'prefix' = Annotations (job) o Audits (review).
+# Los 5 archivos a descargar. Cada cola se abre DIRECTO por su 'jobtype' (ID),
+# lo que evita depender de menus/tablas. 'folder' = subcarpeta destino.
+# 'prefix' = Annotations (Job Queues) o Audits (Review Queues).
 TARGETS = [
-    {"type": "PCS Concept BBox",     "section": "job",    "queue": "XDoF Bbox",           "folder": "XDOF BBOX",        "prefix": "Annotations"},
-    {"type": "PCS Concept BBox",     "section": "job",    "queue": "PCS Concept BBox",     "folder": "PCS Concept BBOX", "prefix": "Annotations"},
-    {"type": "PCS Concept BBox",     "section": "review", "queue": "XDoF Bbox",           "folder": "XDOF BBOX",        "prefix": "Audits"},
-    {"type": "PCS Concept BBox",     "section": "review", "queue": "PCS Concept BBox",     "folder": "PCS Concept BBOX", "prefix": "Audits"},
-    {"type": "PCS Concept Polarity", "section": "job",    "queue": "PCS Concept Polarity", "folder": "Polarity",         "prefix": "Annotations"},
+    {"jobtype": "01M0B6047EB8Z8WN50S8AX8G5J", "folder": "XDOF BBOX",        "prefix": "Annotations", "label": "XDoF Bbox (Job)"},
+    {"jobtype": "01M00PFQHJWQ2ME8QX931XMP3C", "folder": "PCS Concept BBOX", "prefix": "Annotations", "label": "PCS Concept BBox (Job)"},
+    {"jobtype": "01M0B60442P8CN967GN3RHFRRY", "folder": "XDOF BBOX",        "prefix": "Audits",      "label": "XDoF Bbox (Review)"},
+    {"jobtype": "01M00PFQBJR4PVHBDMNWJ1KAGB", "folder": "PCS Concept BBOX", "prefix": "Audits",      "label": "PCS Concept BBox (Review)"},
+    {"jobtype": "01KYNB9KKHMS3G7S7NDHXQFPBT", "folder": "Polarity",         "prefix": "Annotations", "label": "PCS Concept Polarity (Job)"},
 ]
+
+# Tipos que expande el modo --discover (solo para diagnostico).
+DISCOVERY_TYPES = ["PCS Concept BBox", "PCS Concept Polarity"]
 # ======================================================================
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -117,15 +121,15 @@ def _authed_url(url: str) -> bool:
     return ("far-annotations" in u) and ("midway" not in u) and ("_login" not in u)
 
 
-def goto_audit(page: Page) -> None:
-    """Va a la pagina de Audit. Si redirige a Midway, espera a que el usuario inicie sesion."""
-    page.goto(AUDIT_URL, wait_until="domcontentloaded")
+def goto_authed(page: Page, url: str) -> None:
+    """Navega a 'url'. Si redirige a Midway, espera a que el usuario inicie sesion."""
+    page.goto(url, wait_until="domcontentloaded")
     deadline = time.time() + AUTH_WAIT_S
     warned = False
     while not _authed_url(page.url):
         if not warned:
             log.warning("=" * 60)
-            log.warning("INICIA SESION (Midway) en la ventana del navegador que se abrio.")
+            log.warning("INICIA SESION (Midway) en la ventana del navegador.")
             log.warning("Usa tu PIN + llave de seguridad. Esperando hasta %d s...", AUTH_WAIT_S)
             log.warning("=" * 60)
             warned = True
@@ -134,7 +138,13 @@ def goto_audit(page: Page) -> None:
         page.wait_for_timeout(2000)
     if warned:
         log.info("Sesion iniciada. Continuando...")
-    page.wait_for_timeout(1500)
+    page.wait_for_timeout(1200)
+
+
+def goto_audit(page: Page) -> None:
+    """Va a la pagina principal de Audit (usado por --discover)."""
+    goto_authed(page, AUDIT_URL)
+    page.wait_for_timeout(300)
 
 
 def ensure_expanded(page: Page, type_name: str, queue_hint: str | None = None) -> None:
@@ -155,70 +165,44 @@ def ensure_expanded(page: Page, type_name: str, queue_hint: str | None = None) -
     # Si no se confirmo por queue_hint, seguimos igual y dejamos que la verificacion posterior decida.
 
 
-def detail_matches(page: Page, queue: str, section: str) -> bool:
-    """En la pagina de detalle, verifica que sea el queue y la seccion correctos."""
-    url = page.url.lower()
-    want_review = section == "review"
-    is_review = "review" in url
-    # Verificacion secundaria por el titulo "Audit: <queue>" si la URL no fuera concluyente.
-    section_ok = (is_review == want_review)
-    if not section_ok:
-        return False
-    try:
-        page.get_by_role(
-            "heading", name=re.compile(rf"Audit:\s*{re.escape(queue)}", re.I)
-        ).first.wait_for(timeout=8_000)
-    except PWTimeout:
-        log.info("    (ojo: no vi el titulo 'Audit: %s', pero la seccion coincide)", queue)
-    return True
+def find_export_button(page: Page):
+    """Devuelve el localizador del boton 'Export CSV'."""
+    btn = page.get_by_role("button", name=re.compile("export.*csv", re.I))
+    if btn.count() == 0:
+        btn = page.get_by_text(re.compile("export.*csv", re.I))
+    return btn
 
 
 def open_queue(page: Page, target: dict) -> bool:
-    """Navega hasta la pagina de detalle del queue correcto. Devuelve True si lo logro."""
-    type_name = target["type"]
-    queue = target["queue"]
-    section = target["section"]
+    """Abre DIRECTO la pagina de detalle de la cola por su jobtype ID."""
+    queue_url = f"{AUDIT_URL}/jobtype/{target['jobtype']}"
+    log.info("  Abriendo: %s", queue_url)
+    goto_authed(page, queue_url)
 
-    ensure_expanded(page, type_name, queue_hint=queue)
-
-    links = page.get_by_role("link", name=queue, exact=True)
-    n = links.count()
-    log.info("  %d enlace(s) '%s' encontrados; buscando la seccion '%s'", n, queue, section)
-    if n == 0:
-        dump_debug(page, f"sin_enlace_{queue.replace(' ', '_')}")
+    # La pagina de detalle esta lista cuando aparece el boton Export CSV.
+    btn = find_export_button(page)
+    try:
+        btn.first.wait_for(state="visible", timeout=20_000)
+    except PWTimeout:
+        log.error("  no encontre el boton 'Export CSV' en esta pagina")
+        dump_debug(page, f"sin_export_{target['jobtype']}")
         return False
 
-    for i in range(n):
-        link = page.get_by_role("link", name=queue, exact=True).nth(i)
-        try:
-            link.scroll_into_view_if_needed()
-            link.click()
-            page.wait_for_load_state("domcontentloaded")
-            page.wait_for_timeout(800)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("    no pude clicar el enlace %d: %s", i, exc)
-            continue
-
-        if detail_matches(page, queue, section):
-            log.info("  -> entre al queue correcto (%s / %s)", queue, section)
-            return True
-
-        # No era la seccion correcta: regreso y pruebo el siguiente enlace.
-        page.go_back()
-        page.wait_for_load_state("domcontentloaded")
-        ensure_expanded(page, type_name, queue_hint=queue)
-
-    dump_debug(page, f"no_encontre_seccion_{section}_{queue.replace(' ', '_')}")
-    return False
+    # Registrar el titulo para verificar que es la cola correcta.
+    try:
+        h1 = page.get_by_role("heading", name=re.compile("Audit:", re.I)).first
+        h1.wait_for(timeout=5_000)
+        log.info("  Titulo de la pagina: %s", (h1.inner_text() or "").strip())
+    except Exception:  # noqa: BLE001
+        pass
+    return True
 
 
 def export_csv(page: Page, dest: Path) -> None:
     """Da clic en 'Export CSV' y espera la descarga, guardandola en 'dest'."""
     dest.parent.mkdir(parents=True, exist_ok=True)
 
-    btn = page.get_by_role("button", name=re.compile("export.*csv", re.I))
-    if btn.count() == 0:
-        btn = page.get_by_text(re.compile("export.*csv", re.I)).first
+    btn = find_export_button(page)
 
     minutes = DOWNLOAD_TIMEOUT_MS // 60_000
     log.info("  clic en 'Export CSV'; esperando la descarga (hasta %d min)...", minutes)
@@ -235,8 +219,7 @@ def export_csv(page: Page, dest: Path) -> None:
 
 def run_discovery(page: Page) -> None:
     """Solo lista los enlaces visibles bajo cada tipo objetivo (para afinar selectores)."""
-    types = sorted({t["type"] for t in TARGETS})
-    for type_name in types:
+    for type_name in DISCOVERY_TYPES:
         log.info("=== Desplegando: %s ===", type_name)
         ensure_expanded(page, type_name)
         page.wait_for_timeout(1500)
@@ -325,18 +308,18 @@ def main() -> int:
                 return 0
 
             for t in targets:
-                label = f"{t['prefix']}-{tag}  [{t['type']} / {t['section']} / {t['queue']}]"
+                label = f"{t['prefix']}-{tag}  [{t['label']}]"
                 log.info("")
                 log.info(">>> %s", label)
                 dest = BASE_DIR / t["folder"] / f"{t['prefix']}-{tag}.csv"
                 try:
                     if not open_queue(page, t):
-                        raise RuntimeError("no logre entrar al queue correcto")
+                        raise RuntimeError("no pude abrir la pagina de la cola")
                     export_csv(page, dest)
                     results.append((label, True, str(dest)))
                 except Exception as exc:  # noqa: BLE001
                     log.error("  FALLO: %s", exc)
-                    dump_debug(page, f"fallo_{t['prefix']}_{t['queue'].replace(' ', '_')}")
+                    dump_debug(page, f"fallo_{t['prefix']}_{t['jobtype']}")
                     results.append((label, False, str(exc)))
         finally:
             if args.attach:
