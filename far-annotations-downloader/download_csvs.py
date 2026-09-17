@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
+import os
 import re
 import sys
 import time
@@ -54,15 +55,20 @@ AUDIT_URL = "https://far-annotations.gamma.harmony.a2z.com/far-annotations/audit
 # Otras opciones: "chrome" (Google Chrome instalado) o "" (Chromium de Playwright).
 BROWSER_CHANNEL = "msedge"
 
-# Carpeta base en la PC de trabajo. Cada archivo se guarda en BASE_DIR / <folder>.
-# NOTA: confirma que estos nombres de carpeta existan tal cual (ver TARGETS abajo).
-BASE_DIR = Path(r"W:\My Documents\Dashboard_k2\Far-Annotation Data\CSVs")
+# Carpeta base. Cada archivo se guarda en BASE_DIR / <folder>.
+# Se puede sobrescribir SIN tocar el codigo con la variable de entorno FAR_CSV_BASE
+# (util para correr en otra PC / PC virtual donde la ruta sea distinta).
+BASE_DIR = Path(os.environ.get(
+    "FAR_CSV_BASE",
+    r"W:\My Documents\Dashboard_k2\Far-Annotation Data\CSVs",
+))
 
 # Perfil de navegador dedicado (guarda tu sesion de Midway para reutilizarla).
 PROFILE_DIR = Path.home() / ".far_annotations_pw_profile"
 
 # Cuanto esperar (segundos) a que completes el login de Midway en la ventana.
-AUTH_WAIT_S = 300  # 5 minutos
+# Mas holgado para las corridas programadas (te da tiempo de tocar la YubiKey).
+AUTH_WAIT_S = 600  # 10 minutos
 
 # Tiempo maximo de espera a que se genere/descargue cada CSV.
 DOWNLOAD_TIMEOUT_MS = 25 * 60 * 1000  # 25 minutos

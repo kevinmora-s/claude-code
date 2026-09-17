@@ -19,8 +19,30 @@ Fecha = `MMDDYY` (mes sin cero, dia 2 digitos, anio 2 digitos). 17/sep/2026 -> `
 
 ```bat
 pip install playwright
-playwright install chromium
 ```
+(No hace falta `playwright install chromium`: se usa el Microsoft Edge instalado.)
+
+## Uso rapido (un clic)
+
+Con todo instalado, basta con:
+
+1. Doble clic a **`descargar_todo.bat`**. Abre Edge y corre la descarga de los 5.
+2. Si Midway pide login, hazlo en la ventana (PIN + YubiKey). Los siguientes usos
+   del dia reutilizan esa sesion.
+
+## Corrida automatica (3 veces al dia)
+
+1. Doble clic a **`instalar_tareas.bat`** (crea tareas a las 7:00, 12:00 y 16:00).
+2. Listo. Cada dia corren solas **mientras tu sesion de Windows este iniciada**.
+
+Para quitarlas: `desinstalar_tareas.bat`.
+
+> IMPORTANTE (Midway + YubiKey): la autenticacion necesita tu **toque fisico de la
+> YubiKey** cada cierto tiempo. Por eso las tareas corren solo con tu sesion abierta
+> y la ventana visible: si la sesion de Midway expiro, la corrida abre Edge y espera
+> a que toques la llave (hasta 10 min). Tipicamente tocas una vez en la manana (7:00)
+> y las de 12:00 y 16:00 reutilizan la sesion sin pedir nada. Esto no se puede volver
+> 100% desatendido porque la llave es un paso humano por diseno de seguridad.
 
 ## Antes de la primera corrida: revisar la configuracion
 
@@ -66,8 +88,29 @@ python download_csvs.py --date 2026-09-17  :: forzar la fecha del nombre
 python download_csvs.py --keep-open     :: deja el navegador abierto al terminar
 ```
 
+## Correr en otra PC / PC virtual / la de un companero
+
+El script es portable. En la otra maquina:
+
+1. Copia esta carpeta completa (todos los `.py` y `.bat`).
+2. `pip install playwright`.
+3. Asegurate de que exista la ruta destino. Si la carpeta base es distinta a la
+   de tu PC, **no edites el codigo**: define la variable de entorno `FAR_CSV_BASE`
+   con la ruta correcta. Ejemplo (temporal, para probar):
+   ```bat
+   set "FAR_CSV_BASE=D:\Ruta\A\CSVs"
+   descargar_todo.bat
+   ```
+   Dentro de esa base deben existir las subcarpetas `XDOF BBOX`, `PCS Concept BBOX`
+   y `Polarity` (el script las crea si faltan).
+4. Esa maquina tambien necesita Edge con la extension **AEA** y poder autenticar
+   Midway (por eso funciona en equipos de la empresa).
+
+Los IDs de las colas son los mismos para todos (es la misma app web), asi que no
+hay que cambiar nada mas.
+
 ## Si algo falla
 
 El script guarda automaticamente un **screenshot + HTML** en la carpeta `debug\`
 cada vez que no encuentra algo, y un registro en `debug\run.log`.
-Enviame esos archivos y ajusto los selectores en una pasada.
+Enviame esos archivos y lo ajusto.
