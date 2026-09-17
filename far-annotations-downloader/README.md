@@ -30,16 +30,29 @@ Abre `download_csvs.py` y confirma, arriba en la seccion `CONFIGURACION`:
 - Los nombres de `folder` en `TARGETS` -> deben coincidir **exactamente** con tus
   carpetas ya existentes (`XDOF BBOX`, `PCS Concept BBOX`, `Polarity`).
 
-## Uso
+## Uso con Midway / AEA (recomendado: modo --attach)
 
-Corrida normal (descarga los 5, con ventana visible):
+El sitio exige la extension **AEA** y login **Midway** (PIN + YubiKey), que viven
+en tu Edge real. Por eso el script se **conecta a un Edge ya autenticado** en vez
+de abrir uno nuevo:
+
+1. Doble clic a **`launch_edge_debug.bat`**. Abre Edge (perfil de automatizacion)
+   en el puerto 9222, en la pagina de Audit.
+2. En esa ventana, inicia sesion en Midway (PIN + YubiKey). Si te pide instalar la
+   extension AEA, instalala **una vez** en ese perfil. **Deja la ventana abierta.**
+3. En PowerShell, corre el script con `--attach`:
 
 ```bat
-python download_csvs.py
+python download_csvs.py --attach --discover   :: primero: listar enlaces (afinar)
+python download_csvs.py --attach --only 1      :: probar un archivo
+python download_csvs.py --attach               :: descargar los 5
 ```
 
-La primera vez, si apareciera un login, complétalo en la ventana que se abre:
-queda guardado en el perfil y las siguientes corridas ya no lo pediran.
+El modo `--attach` reutiliza tu sesion, no cierra tu navegador y solo cierra la
+pestana que abrio.
+
+> Nota: la primera vez que corras `launch_edge_debug.bat`, ese perfil dedicado
+> pedira login/AEA. Despues queda guardado y las siguientes veces es directo.
 
 > Los exports tardan (7-15 min cada uno). El script espera hasta 25 min por archivo.
 > Es normal que la corrida completa tome cerca de una hora; puedes dejarla sola.

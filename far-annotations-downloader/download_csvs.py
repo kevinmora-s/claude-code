@@ -254,6 +254,10 @@ def run_discovery(page: Page) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Descarga automatica de CSVs de FAR Annotations Audit.")
     ap.add_argument("--headless", action="store_true", help="Sin ventana visible.")
+    ap.add_argument("--attach", action="store_true",
+                    help="Conectarse a un Edge ya abierto con --remote-debugging-port (usa launch_edge_debug.bat).")
+    ap.add_argument("--cdp", type=str, default="http://localhost:9222",
+                    help="URL de depuracion del Edge al que conectarse (con --attach).")
     ap.add_argument("--discover", action="store_true", help="Solo listar queues/enlaces y salir.")
     ap.add_argument("--only", type=int, metavar="N", help="Correr solo el objetivo N (1..%d)." % len(TARGETS))
     ap.add_argument("--date", type=str, metavar="YYYY-MM-DD", help="Forzar fecha para el nombre.")
@@ -278,17 +282,27 @@ def main() -> int:
     results: list[tuple[str, bool, str]] = []
 
     with sync_playwright() as p:
-        launch_kwargs = dict(
-            user_data_dir=str(PROFILE_DIR),
-            headless=args.headless,
-            accept_downloads=True,
-            no_viewport=True,
-            args=["--start-maximized"],
-        )
-        if BROWSER_CHANNEL:
-            launch_kwargs["channel"] = BROWSER_CHANNEL  # usar Edge/Chrome instalado
-        ctx = p.chromium.launch_persistent_context(**launch_kwargs)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        browser = None
+        if args.attach:
+            # Conectarse a un Edge YA abierto y autenticado (con --remote-debugging-port).
+            log.info("Conectando al Edge en %s ...", args.cdp)
+            browser = p.chromium.connect_over_cdp(args.cdp)
+            if not browser.contexts:
+                raise RuntimeError("el Edge conectado no tiene contexto; abrelo con launch_edge_debug.bat")
+            ctx = browser.contexts[0]  # contexto real -> conserva tu sesion/cookies
+            page = ctx.new_page()
+        else:
+            launch_kwargs = dict(
+                user_data_dir=str(PROFILE_DIR),
+                headless=args.headless,
+                accept_downloads=True,
+                no_viewport=True,
+                args=["--start-maximized"],
+            )
+            if BROWSER_CHANNEL:
+                launch_kwargs["channel"] = BROWSER_CHANNEL  # usar Edge/Chrome instalado
+            ctx = p.chromium.launch_persistent_context(**launch_kwargs)
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.set_default_timeout(30_000)
 
         try:
@@ -311,13 +325,20 @@ def main() -> int:
                     dump_debug(page, f"fallo_{t['prefix']}_{t['queue'].replace(' ', '_')}")
                     results.append((label, False, str(exc)))
         finally:
-            if args.keep_open:
-                log.info("Navegador abierto (--keep-open). Cierralo manualmente.")
+            if args.attach:
+                # No cerrar TU navegador; solo la pestana que abrimos.
                 try:
-                    page.pause()
+                    page.close()
                 except Exception:  # noqa: BLE001
                     pass
-            ctx.close()
+            else:
+                if args.keep_open:
+                    log.info("Navegador abierto (--keep-open). Cierralo manualmente.")
+                    try:
+                        page.pause()
+                    except Exception:  # noqa: BLE001
+                        pass
+                ctx.close()
 
     # Resumen final
     log.info("")
