@@ -36,6 +36,7 @@ import datetime as dt
 import logging
 import re
 import sys
+import time
 from pathlib import Path
 
 from playwright.sync_api import (
@@ -49,12 +50,19 @@ from playwright.sync_api import (
 
 AUDIT_URL = "https://far-annotations.gamma.harmony.a2z.com/far-annotations/audit"
 
+# Navegador a controlar. "msedge" = Microsoft Edge instalado (recomendado, por Midway).
+# Otras opciones: "chrome" (Google Chrome instalado) o "" (Chromium de Playwright).
+BROWSER_CHANNEL = "msedge"
+
 # Carpeta base en la PC de trabajo. Cada archivo se guarda en BASE_DIR / <folder>.
 # NOTA: confirma que estos nombres de carpeta existan tal cual (ver TARGETS abajo).
 BASE_DIR = Path(r"W:\My Documents\Dashboard_k2\Far-Annotation Data\CSVs")
 
-# Perfil de navegador dedicado (guarda cookies/sesion para que "cargue solo").
+# Perfil de navegador dedicado (guarda tu sesion de Midway para reutilizarla).
 PROFILE_DIR = Path.home() / ".far_annotations_pw_profile"
+
+# Cuanto esperar (segundos) a que completes el login de Midway en la ventana.
+AUTH_WAIT_S = 300  # 5 minutos
 
 # Tiempo maximo de espera a que se genere/descargue cada CSV.
 DOWNLOAD_TIMEOUT_MS = 25 * 60 * 1000  # 25 minutos
@@ -103,10 +111,35 @@ def dump_debug(page: Page, label: str) -> None:
         log.warning("  [debug] no se pudo guardar diagnostico: %s", exc)
 
 
+def _authed_url(url: str) -> bool:
+    """True si estamos ya dentro de la app (no en Midway ni en la pantalla de login)."""
+    u = url.lower()
+    return ("far-annotations" in u) and ("midway" not in u) and ("_login" not in u)
+
+
+def goto_audit(page: Page) -> None:
+    """Va a la pagina de Audit. Si redirige a Midway, espera a que el usuario inicie sesion."""
+    page.goto(AUDIT_URL, wait_until="domcontentloaded")
+    deadline = time.time() + AUTH_WAIT_S
+    warned = False
+    while not _authed_url(page.url):
+        if not warned:
+            log.warning("=" * 60)
+            log.warning("INICIA SESION (Midway) en la ventana del navegador que se abrio.")
+            log.warning("Usa tu PIN + llave de seguridad. Esperando hasta %d s...", AUTH_WAIT_S)
+            log.warning("=" * 60)
+            warned = True
+        if time.time() > deadline:
+            raise RuntimeError("no se completo el login de Midway a tiempo")
+        page.wait_for_timeout(2000)
+    if warned:
+        log.info("Sesion iniciada. Continuando...")
+    page.wait_for_timeout(1500)
+
+
 def ensure_expanded(page: Page, type_name: str, queue_hint: str | None = None) -> None:
     """Abre (despliega) el Annotation type indicado en la lista de Audit."""
-    page.goto(AUDIT_URL, wait_until="domcontentloaded")
-    page.wait_for_timeout(1500)
+    goto_audit(page)
 
     title = page.get_by_text(type_name, exact=True).first
     title.wait_for(state="visible", timeout=30_000)
@@ -245,13 +278,16 @@ def main() -> int:
     results: list[tuple[str, bool, str]] = []
 
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
+        launch_kwargs = dict(
             user_data_dir=str(PROFILE_DIR),
             headless=args.headless,
             accept_downloads=True,
             no_viewport=True,
             args=["--start-maximized"],
         )
+        if BROWSER_CHANNEL:
+            launch_kwargs["channel"] = BROWSER_CHANNEL  # usar Edge/Chrome instalado
+        ctx = p.chromium.launch_persistent_context(**launch_kwargs)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.set_default_timeout(30_000)
 
