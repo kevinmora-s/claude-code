@@ -7,11 +7,11 @@ renombrados, en su carpeta correspondiente.
 
 | # | Seccion | Queue | Archivo | Carpeta |
 |---|---------|-------|---------|---------|
-| 1 | Job Queues | XDoF Bbox | `Annotations-<fecha>.csv` | `CSVs\XDoF Bbox\` |
-| 2 | Job Queues | PCS Concept BBox | `Annotations-<fecha>.csv` | `CSVs\PCS Concept BBox\` |
-| 3 | Review Queues | XDoF Bbox | `Audits-<fecha>.csv` | `CSVs\XDoF Bbox\` |
-| 4 | Review Queues | PCS Concept BBox | `Audits-<fecha>.csv` | `CSVs\PCS Concept BBox\` |
-| 5 | Job Queues | PCS Concept Polarity | `Annotations-<fecha>.csv` | `CSVs\PCS Concept Polarity\` |
+| 1 | Job Queues | XDoF Bbox | `Annotations-<fecha>.csv` | `CSVs\XDOF BBOX\` |
+| 2 | Job Queues | PCS Concept BBox | `Annotations-<fecha>.csv` | `CSVs\PCS Concept BBOX\` |
+| 3 | Review Queues | XDoF Bbox | `Audits-<fecha>.csv` | `CSVs\XDOF BBOX\` |
+| 4 | Review Queues | PCS Concept BBox | `Audits-<fecha>.csv` | `CSVs\PCS Concept BBOX\` |
+| 5 | Job Queues | PCS Concept Polarity | `Annotations-<fecha>.csv` | `CSVs\Polarity\` |
 
 Fecha = `MMDDYY` (mes sin cero, dia 2 digitos, anio 2 digitos). 17/sep/2026 -> `91726`.
 
@@ -28,7 +28,7 @@ Abre `download_csvs.py` y confirma, arriba en la seccion `CONFIGURACION`:
 
 - `BASE_DIR` -> ruta base (por defecto `W:\My Documents\Dashboard_k2\Far-Annotation Data\CSVs`).
 - Los nombres de `folder` en `TARGETS` -> deben coincidir **exactamente** con tus
-  carpetas ya existentes (`XDoF Bbox`, `PCS Concept BBox`, `PCS Concept Polarity`).
+  carpetas ya existentes (`XDOF BBOX`, `PCS Concept BBOX`, `Polarity`).
 
 ## Uso
 

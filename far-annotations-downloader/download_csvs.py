@@ -62,11 +62,11 @@ DOWNLOAD_TIMEOUT_MS = 25 * 60 * 1000  # 25 minutos
 # Los 5 archivos a descargar. 'section': "job" (Job Queues) o "review" (Review Queues).
 # 'folder' = subcarpeta destino. 'prefix' = Annotations (job) o Audits (review).
 TARGETS = [
-    {"type": "PCS Concept BBox",     "section": "job",    "queue": "XDoF Bbox",           "folder": "XDoF Bbox",            "prefix": "Annotations"},
-    {"type": "PCS Concept BBox",     "section": "job",    "queue": "PCS Concept BBox",     "folder": "PCS Concept BBox",     "prefix": "Annotations"},
-    {"type": "PCS Concept BBox",     "section": "review", "queue": "XDoF Bbox",           "folder": "XDoF Bbox",            "prefix": "Audits"},
-    {"type": "PCS Concept BBox",     "section": "review", "queue": "PCS Concept BBox",     "folder": "PCS Concept BBox",     "prefix": "Audits"},
-    {"type": "PCS Concept Polarity", "section": "job",    "queue": "PCS Concept Polarity", "folder": "PCS Concept Polarity", "prefix": "Annotations"},
+    {"type": "PCS Concept BBox",     "section": "job",    "queue": "XDoF Bbox",           "folder": "XDOF BBOX",        "prefix": "Annotations"},
+    {"type": "PCS Concept BBox",     "section": "job",    "queue": "PCS Concept BBox",     "folder": "PCS Concept BBOX", "prefix": "Annotations"},
+    {"type": "PCS Concept BBox",     "section": "review", "queue": "XDoF Bbox",           "folder": "XDOF BBOX",        "prefix": "Audits"},
+    {"type": "PCS Concept BBox",     "section": "review", "queue": "PCS Concept BBox",     "folder": "PCS Concept BBOX", "prefix": "Audits"},
+    {"type": "PCS Concept Polarity", "section": "job",    "queue": "PCS Concept Polarity", "folder": "Polarity",         "prefix": "Annotations"},
 ]
 # ======================================================================
 
