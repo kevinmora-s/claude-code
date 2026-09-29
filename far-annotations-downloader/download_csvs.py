@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import glob
 import json
 import logging
 import os
@@ -57,12 +58,26 @@ AUDIT_URL = "https://far-annotations.gamma.harmony.a2z.com/far-annotations/audit
 BROWSER_CHANNEL = "msedge"
 
 # Carpeta base. Cada archivo se guarda en BASE_DIR / <folder>.
-# Se puede sobrescribir SIN tocar el codigo con la variable de entorno FAR_CSV_BASE
-# (util para correr en otra PC / PC virtual donde la ruta sea distinta).
-BASE_DIR = Path(os.environ.get(
-    "FAR_CSV_BASE",
-    r"W:\My Documents\Dashboard_k2\Far-Annotation Data\CSVs",
-))
+# Se AUTODETECTA igual que lo hace KNIME (nodo #44): el disco W: (Dashboard_k2)
+# puede estar en "My Documents" (creador) o en "Shared With Me" (equipo). Asi el
+# script funciona en cualquier equipo sin editar el codigo. Se puede forzar con
+# la variable de entorno FAR_CSV_BASE.
+def _resolve_csvs_base() -> Path:
+    env = os.environ.get("FAR_CSV_BASE")
+    if env:
+        return Path(env)
+    candidates = (
+        [r"W:\My Documents\Dashboard_k2"]
+        + glob.glob(r"W:\Shared With Me\*\Dashboard_k2")
+        + glob.glob(r"W:\Shared With Me\*\*\Dashboard_k2")
+    )
+    for c in candidates:
+        if os.path.isdir(c):
+            return Path(c) / "Far-Annotation Data" / "CSVs"
+    return Path(r"W:\My Documents\Dashboard_k2\Far-Annotation Data\CSVs")  # fallback (creador)
+
+
+BASE_DIR = _resolve_csvs_base()
 
 # Perfil de navegador dedicado (guarda tu sesion de Midway para reutilizarla).
 PROFILE_DIR = Path.home() / ".far_annotations_pw_profile"
@@ -314,6 +329,8 @@ def main() -> int:
                     help="Rango del Timeline del Export (default: %s). Baseline: all." % TIMELINE_RANGE)
     ap.add_argument("--baseline", action="store_true",
                     help="Baseline: nombra <prefix>-BASELINE.csv y usa Timeline 'all'.")
+    ap.add_argument("--max-age-hours", type=float, metavar="H", default=0,
+                    help="Si el archivo destino ya existe y tiene menos de H horas, se SALTA (candado de frescura).")
     ap.add_argument("--keep-open", action="store_true", help="Dejar el navegador abierto al terminar.")
     args = ap.parse_args()
 
@@ -394,6 +411,14 @@ def main() -> int:
                 log.info("")
                 log.info(">>> %s", label)
                 dest = BASE_DIR / t["folder"] / f"{t['prefix']}-{tag}.csv"
+
+                # Candado de frescura: si ya existe y es reciente, no re-descargar.
+                if args.max_age_hours and dest.exists():
+                    age_h = (time.time() - dest.stat().st_mtime) / 3600.0
+                    if age_h < args.max_age_hours:
+                        log.info("  fresco (%.1f h < %.1f h): se salta.", age_h, args.max_age_hours)
+                        results.append((label, True, f"fresco: {dest}"))
+                        continue
 
                 ok = False
                 last_err = ""
