@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import logging
 import os
 import re
@@ -72,6 +73,14 @@ AUTH_WAIT_S = 600  # 10 minutos
 
 # Tiempo maximo de espera a que se genere/descargue cada CSV.
 DOWNLOAD_TIMEOUT_MS = 25 * 60 * 1000  # 25 minutos
+
+# Reintentos por archivo si algo falla (sesion caida, timeout, etc.).
+RETRIES_PER_FILE = 2  # => hasta 3 intentos por archivo
+
+# Rango de la nueva opcion "Timeline" del Export.
+#   Valores: "24h" | "7d" | "30d" | "90d" | "all"
+# (La seleccion del rango en la pagina se implementa una vez confirmado el control.)
+TIMELINE_RANGE = "all"
 
 # Los 5 archivos a descargar. Cada cola se abre DIRECTO por su 'jobtype' (ID),
 # lo que evita depender de menus/tablas. 'folder' = subcarpeta destino.
@@ -125,6 +134,20 @@ def _authed_url(url: str) -> bool:
     """True si estamos ya dentro de la app (no en Midway ni en la pantalla de login)."""
     u = url.lower()
     return ("far-annotations" in u) and ("midway" not in u) and ("_login" not in u)
+
+
+def auth_problem(page: Page) -> str | None:
+    """Detecta si la pagina esta en un estado de sesion caida. Devuelve el motivo o None."""
+    try:
+        u = (page.url or "").lower()
+        if "midway" in u or "_login" in u:
+            return "redirigido a Midway (sesion caida): requiere re-login con YubiKey"
+        body = page.locator("body").inner_text(timeout=3000)
+        if "AEA extension not installed" in body:
+            return "AEA no activa / sesion caida: requiere re-login con YubiKey"
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 def goto_authed(page: Page, url: str) -> None:
@@ -318,15 +341,25 @@ def main() -> int:
                 log.info("")
                 log.info(">>> %s", label)
                 dest = BASE_DIR / t["folder"] / f"{t['prefix']}-{tag}.csv"
-                try:
-                    if not open_queue(page, t):
-                        raise RuntimeError("no pude abrir la pagina de la cola")
-                    export_csv(page, dest)
-                    results.append((label, True, str(dest)))
-                except Exception as exc:  # noqa: BLE001
-                    log.error("  FALLO: %s", exc)
-                    dump_debug(page, f"fallo_{t['prefix']}_{t['jobtype']}")
-                    results.append((label, False, str(exc)))
+
+                ok = False
+                last_err = ""
+                for attempt in range(1, RETRIES_PER_FILE + 2):  # 1 + reintentos
+                    if attempt > 1:
+                        log.info("  reintento %d/%d ...", attempt - 1, RETRIES_PER_FILE)
+                    try:
+                        if not open_queue(page, t):
+                            raise RuntimeError(auth_problem(page) or "no pude abrir la pagina de la cola")
+                        export_csv(page, dest)
+                        ok = True
+                        break
+                    except Exception as exc:  # noqa: BLE001
+                        last_err = auth_problem(page) or str(exc)
+                        log.error("  intento %d fallo: %s", attempt, last_err)
+                        dump_debug(page, f"fallo_{t['prefix']}_{t['jobtype']}_try{attempt}")
+                        page.wait_for_timeout(3000)
+
+                results.append((label, ok, str(dest) if ok else last_err))
         finally:
             if args.attach:
                 pass  # es TU navegador: no lo cerramos ni tocamos tus pestanas
@@ -348,7 +381,33 @@ def main() -> int:
         if not good:
             log.info("        -> %s", info)
     log.info("Descargados %d de %d.", ok, len(results))
+
+    # Archivo de estado (para que el orquestador 'Run All' sepa si paso o no).
+    write_status(tag, results, ok)
     return 0 if ok == len(results) else 1
+
+
+def write_status(tag: str, results: list, ok: int) -> None:
+    """Escribe un JSON de estado con el resultado de la ultima corrida."""
+    status = {
+        "fecha_nombre": tag,
+        "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
+        "timeline_range": TIMELINE_RANGE,
+        "ok": ok,
+        "total": len(results),
+        "exito_total": ok == len(results),
+        "detalle": [
+            {"archivo": lbl, "ok": good, "info": info} for lbl, good, info in results
+        ],
+    }
+    for target_dir in (DEBUG_DIR, BASE_DIR):
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "far_ultimo_estado.json").write_text(
+                json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("no pude escribir el estado en %s: %s", target_dir, exc)
 
 
 if __name__ == "__main__":
