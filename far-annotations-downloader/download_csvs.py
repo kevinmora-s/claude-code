@@ -79,8 +79,9 @@ RETRIES_PER_FILE = 2  # => hasta 3 intentos por archivo
 
 # Rango de la nueva opcion "Timeline" del Export.
 #   Valores: "24h" | "7d" | "30d" | "90d" | "all"
-# (La seleccion del rango en la pagina se implementa una vez confirmado el control.)
-TIMELINE_RANGE = "all"
+# Default para las corridas recurrentes = 30d. El baseline usa --timeline all.
+# (El 'clic' al selector en la pagina se cablea cuando se confirme el control.)
+TIMELINE_RANGE = "30d"
 
 # Los 5 archivos a descargar. Cada cola se abre DIRECTO por su 'jobtype' (ID),
 # lo que evita depender de menus/tablas. 'folder' = subcarpeta destino.
@@ -264,6 +265,7 @@ def run_discovery(page: Page) -> None:
 
 
 def main() -> int:
+    global TIMELINE_RANGE
     ap = argparse.ArgumentParser(description="Descarga automatica de CSVs de FAR Annotations Audit.")
     ap.add_argument("--headless", action="store_true", help="Sin ventana visible (solo con --no-attach).")
     ap.add_argument("--no-attach", dest="attach", action="store_false",
@@ -274,10 +276,16 @@ def main() -> int:
     ap.add_argument("--discover", action="store_true", help="Solo listar queues/enlaces y salir.")
     ap.add_argument("--only", type=int, metavar="N", help="Correr solo el objetivo N (1..%d)." % len(TARGETS))
     ap.add_argument("--date", type=str, metavar="YYYY-MM-DD", help="Forzar fecha para el nombre.")
+    ap.add_argument("--timeline", type=str, choices=["24h", "7d", "30d", "90d", "all"],
+                    help="Rango del Timeline del Export (default: %s). Baseline: all." % TIMELINE_RANGE)
     ap.add_argument("--keep-open", action="store_true", help="Dejar el navegador abierto al terminar.")
     args = ap.parse_args()
 
     setup_logging()
+
+    if args.timeline:
+        TIMELINE_RANGE = args.timeline
+    log.info("Timeline range: %s", TIMELINE_RANGE)
 
     forced_date = None
     if args.date:
