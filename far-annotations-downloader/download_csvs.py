@@ -203,6 +203,37 @@ def find_export_button(page: Page):
     return btn
 
 
+# Etiquetas de la barra "Dates:" del Export (24 h / 7 d / 30 d / 90 d / All).
+TIMELINE_LABELS = {"24h": r"24\s*h", "7d": r"7\s*d", "30d": r"30\s*d", "90d": r"90\s*d", "all": r"All"}
+
+
+def select_timeline(page: Page, range_key: str) -> None:
+    """Selecciona el rango en la barra 'Dates:' antes de exportar.
+
+    Se ancla al boton 'Custom' (unico de esa barra) para no confundirse con el
+    'All' de la barra de STATUS. Best-effort: si falla, avisa (para 30d el
+    default ya es 30d, asi que no rompe).
+    """
+    pat = TIMELINE_LABELS.get(range_key)
+    if not pat:
+        return
+    try:
+        anchor = page.get_by_role("button", name=re.compile(r"^\s*Custom\s*$", re.I)).last
+        bar = anchor.locator("xpath=ancestor::*[1]")
+    except Exception:  # noqa: BLE001
+        bar = page
+    target = bar.get_by_role("button", name=re.compile(rf"^\s*{pat}\s*$", re.I))
+    if target.count() == 0:
+        target = bar.get_by_text(re.compile(rf"^\s*{pat}\s*$", re.I))
+    try:
+        target.first.click()
+        page.wait_for_timeout(1500)  # dar tiempo a que recargue las metricas del rango
+        log.info("  Timeline seleccionado: %s", range_key)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("  no pude seleccionar el Timeline '%s' (%s). Sigo con el rango visible.",
+                    range_key, exc)
+
+
 def open_queue(page: Page, target: dict) -> bool:
     """Abre DIRECTO la pagina de detalle de la cola por su jobtype ID."""
     queue_url = f"{AUDIT_URL}/jobtype/{target['jobtype']}"
@@ -231,6 +262,9 @@ def open_queue(page: Page, target: dict) -> bool:
 def export_csv(page: Page, dest: Path) -> None:
     """Da clic en 'Export CSV' y espera la descarga, guardandola en 'dest'."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Seleccionar el rango del Timeline (Dates) antes de exportar.
+    select_timeline(page, TIMELINE_RANGE)
 
     btn = find_export_button(page)
 
@@ -275,14 +309,19 @@ def main() -> int:
                     help="URL de depuracion del Edge (por defecto 127.0.0.1:9222).")
     ap.add_argument("--discover", action="store_true", help="Solo listar queues/enlaces y salir.")
     ap.add_argument("--only", type=int, metavar="N", help="Correr solo el objetivo N (1..%d)." % len(TARGETS))
-    ap.add_argument("--date", type=str, metavar="YYYY-MM-DD", help="Forzar fecha para el nombre.")
+    ap.add_argument("--date", type=str, metavar="YYYY-MM-DD", help="Forzar fecha (para calcular la WW).")
     ap.add_argument("--timeline", type=str, choices=["24h", "7d", "30d", "90d", "all"],
                     help="Rango del Timeline del Export (default: %s). Baseline: all." % TIMELINE_RANGE)
+    ap.add_argument("--baseline", action="store_true",
+                    help="Baseline: nombra <prefix>-BASELINE.csv y usa Timeline 'all'.")
     ap.add_argument("--keep-open", action="store_true", help="Dejar el navegador abierto al terminar.")
     args = ap.parse_args()
 
     setup_logging()
 
+    # Rango del Timeline: baseline fuerza 'all'; --timeline explicito tiene prioridad.
+    if args.baseline:
+        TIMELINE_RANGE = "all"
     if args.timeline:
         TIMELINE_RANGE = args.timeline
     log.info("Timeline range: %s", TIMELINE_RANGE)
@@ -290,8 +329,14 @@ def main() -> int:
     forced_date = None
     if args.date:
         forced_date = dt.datetime.strptime(args.date, "%Y-%m-%d").date()
-    tag = date_tag(forced_date)
-    log.info("Fecha para los nombres: %s", tag)
+
+    # Nombre del archivo: BASELINE, o WW<semana ISO> (WW40, WW41, ...).
+    if args.baseline:
+        tag = "BASELINE"
+    else:
+        ref = forced_date or dt.date.today()
+        tag = f"WW{ref.isocalendar()[1]}"
+    log.info("Etiqueta de archivos: %s", tag)
 
     targets = TARGETS
     if args.only:
