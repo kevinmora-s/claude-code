@@ -286,6 +286,21 @@ def _size(p: Path) -> int:
         return 0
 
 
+def _wait_nonzero(p: Path, timeout: float = 120) -> int:
+    """Espera a que el archivo tenga tamano > 0 y estable (W: sincronizado puede
+    reportar 0 justo despues de guardar). Devuelve el tamano final en bytes."""
+    end = time.time() + timeout
+    while time.time() < end:
+        s = _size(p)
+        if s > 0:
+            time.sleep(1.5)                 # confirmar que no sigue creciendo/sincronizando
+            if _size(p) == s:
+                return s
+        else:
+            time.sleep(1.5)
+    return _size(p)
+
+
 def _newest_download_after(after_ts: float):
     """Archivo .csv mas reciente en DOWNLOADS_DIR, terminado (no .crdownload) y >0."""
     try:
@@ -322,12 +337,12 @@ def export_csv(page: Page, dest: Path) -> None:
         except Exception:  # noqa: BLE001
             pass
 
-    # --- Estrategia 1: save_as de Playwright ---
+    # --- Estrategia 1: save_as de Playwright (espera a que W: refleje el tamano) ---
     try:
         download.save_as(str(dest))
     except Exception as exc:  # noqa: BLE001
         log.warning("  save_as fallo: %s", exc)
-    size = _size(dest)
+    size = _wait_nonzero(dest, timeout=120)   # W: sincronizado puede tardar en reportar >0
     log.info("  [diag] sugerido=%s | save_as -> %.1f KB",
              getattr(download, "suggested_filename", "?"), size / 1024)
 
@@ -341,7 +356,7 @@ def export_csv(page: Page, dest: Path) -> None:
                 shutil.copyfile(tp, dest)
         except Exception as exc:  # noqa: BLE001
             log.warning("  copiar temp fallo: %s", exc)
-        size = _size(dest)
+        size = _wait_nonzero(dest, timeout=30)
 
     # --- Estrategia 3: tomar el archivo real de la carpeta de Descargas de Edge ---
     if size == 0:
