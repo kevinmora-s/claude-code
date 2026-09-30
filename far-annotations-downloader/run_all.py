@@ -153,6 +153,11 @@ def run_far(dry):
 # ------------------------------- main -------------------------------
 def main():
     args = set(sys.argv[1:])
+    _known = {"--dry-run", "--skip-far", "--skip-extractors", "--skip-knime"}
+    _unknown = {a for a in args if a.startswith("--") and a not in _known}
+    if _unknown:
+        log("AVISO: flags no reconocidos (se ignoran): " + ", ".join(sorted(_unknown)))
+        log("       validos: --dry-run --skip-far --skip-extractors --skip-knime")
     dry = "--dry-run" in args
     do_far   = RUN_FAR        and "--skip-far" not in args
     do_ext   = RUN_EXTRACTORS and "--skip-extractors" not in args

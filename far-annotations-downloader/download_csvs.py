@@ -38,6 +38,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -81,6 +82,10 @@ BASE_DIR = _resolve_csvs_base()
 
 # Perfil de navegador dedicado (guarda tu sesion de Midway para reutilizarla).
 PROFILE_DIR = Path.home() / ".far_annotations_pw_profile"
+
+# Carpeta de Descargas de Edge (fallback si la captura por CDP viene vacia).
+# Se puede forzar con la variable de entorno FAR_DOWNLOADS_DIR.
+DOWNLOADS_DIR = Path(os.environ.get("FAR_DOWNLOADS_DIR", str(Path.home() / "Downloads")))
 
 # Cuanto esperar (segundos) a que completes el login de Midway en la ventana.
 # Mas holgado para las corridas programadas (te da tiempo de tocar la YubiKey).
@@ -274,26 +279,97 @@ def open_queue(page: Page, target: dict) -> bool:
     return True
 
 
+def _size(p: Path) -> int:
+    try:
+        return p.stat().st_size if p.exists() else 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _newest_download_after(after_ts: float):
+    """Archivo .csv mas reciente en DOWNLOADS_DIR, terminado (no .crdownload) y >0."""
+    try:
+        cands = []
+        for p in DOWNLOADS_DIR.glob("*.csv"):
+            if Path(str(p) + ".crdownload").exists():
+                continue
+            st = p.stat()
+            if st.st_size > 0 and st.st_mtime >= after_ts - 3:
+                cands.append(p)
+        return max(cands, key=lambda q: q.stat().st_mtime) if cands else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def export_csv(page: Page, dest: Path) -> None:
-    """Da clic en 'Export CSV' y espera la descarga, guardandola en 'dest'."""
+    """Clic en 'Export CSV' y guarda el archivo en 'dest'. Robusto ante CDP (0 KB)."""
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     # Seleccionar el rango del Timeline (Dates) antes de exportar.
     select_timeline(page, TIMELINE_RANGE)
 
     btn = find_export_button(page)
-
     minutes = DOWNLOAD_TIMEOUT_MS // 60_000
     log.info("  clic en 'Export CSV'; esperando la descarga (hasta %d min)...", minutes)
+    t_click = time.time()
     with page.expect_download(timeout=DOWNLOAD_TIMEOUT_MS) as dl_info:
         btn.first.click()
     download = dl_info.value
 
     if dest.exists():
-        dest.unlink()  # reemplazar el del dia
-    download.save_as(str(dest))
-    size_kb = dest.stat().st_size / 1024
-    log.info("  OK  guardado: %s  (%.1f KB)", dest, size_kb)
+        try:
+            dest.unlink()  # reemplazar el del dia
+        except Exception:  # noqa: BLE001
+            pass
+
+    # --- Estrategia 1: save_as de Playwright ---
+    try:
+        download.save_as(str(dest))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("  save_as fallo: %s", exc)
+    size = _size(dest)
+    log.info("  [diag] sugerido=%s | save_as -> %.1f KB",
+             getattr(download, "suggested_filename", "?"), size / 1024)
+
+    # --- Estrategia 2: copiar desde el temp de Playwright ---
+    if size == 0:
+        try:
+            tp = download.path()
+            tsz = _size(Path(tp)) if tp else 0
+            log.info("  [diag] temp Playwright=%s (%.1f KB)", tp, tsz / 1024)
+            if tp and tsz > 0:
+                shutil.copyfile(tp, dest)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("  copiar temp fallo: %s", exc)
+        size = _size(dest)
+
+    # --- Estrategia 3: tomar el archivo real de la carpeta de Descargas de Edge ---
+    if size == 0:
+        log.info("  [diag] buscando el archivo en Descargas: %s", DOWNLOADS_DIR)
+        deadline = time.time() + 120
+        found = None
+        while time.time() < deadline:
+            found = _newest_download_after(t_click)
+            if found:
+                # esperar a que termine de escribirse (tamano estable)
+                s0 = found.stat().st_size
+                time.sleep(2)
+                if found.stat().st_size == s0:
+                    break
+            time.sleep(2)
+        if found:
+            log.info("  [diag] encontrado en Descargas: %s (%.1f KB)",
+                     found.name, found.stat().st_size / 1024)
+            try:
+                shutil.move(str(found), str(dest))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("  mover desde Descargas fallo: %s", exc)
+            size = _size(dest)
+
+    if size == 0:
+        raise ValueError("descarga vacia (0 KB): el archivo no se guardo con contenido")
+
+    log.info("  OK  guardado: %s  (%.1f KB)", dest, size / 1024)
 
 
 def run_discovery(page: Page) -> None:
